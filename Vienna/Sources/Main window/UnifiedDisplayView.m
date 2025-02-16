@@ -85,6 +85,7 @@ static void *VNAUnifiedDisplayViewObserverContext = &VNAUnifiedDisplayViewObserv
 	// Register for notification
 	NSNotificationCenter * nc = [NSNotificationCenter defaultCenter];
 	[nc addObserver:self selector:@selector(handleReadingPaneChange:) name:MA_Notify_ReadingPaneChange object:nil];
+	[nc addObserver:self selector:@selector(handleStyleChange:) name:MA_Notify_StyleChange object:nil];
 	[nc addObserver:self selector:@selector(handleCellDidResize:) name:MA_Notify_CellResize object:nil];
 
     [self initTableView];
@@ -101,7 +102,11 @@ static void *VNAUnifiedDisplayViewObserverContext = &VNAUnifiedDisplayViewObserv
 
 	NSMenu * articleListMenu = [[NSMenu alloc] init];
 
-	[articleListMenu addItemWithTitle:NSLocalizedString(@"Mark Read", @"Title of a menu item")
+	[articleListMenu addItemWithTitle:NSLocalizedStringWithDefaultValue(@"markRead.menuItem",
+																		nil,
+																		NSBundle.mainBundle,
+																		@"Mark Read",
+																		@"Title of a menu item")
 							   action:@selector(markRead:)
 						keyEquivalent:@""];
 	[articleListMenu addItemWithTitle:NSLocalizedString(@"Mark Unread", @"Title of a menu item")
@@ -242,7 +247,7 @@ static void *VNAUnifiedDisplayViewObserverContext = &VNAUnifiedDisplayViewObserv
 		BOOL shouldSelectArticle = YES;
 		if ([Preferences standardPreferences].markReadInterval > 0.0f) {
 			Article * article = self.controller.articleController.allArticles[0u];
-			if (!article.read) {
+			if (!article.isRead) {
 				shouldSelectArticle = NO;
 			}
 		}
@@ -340,6 +345,16 @@ static void *VNAUnifiedDisplayViewObserverContext = &VNAUnifiedDisplayViewObserv
 	}
 }
 
+/* handleStyleChange
+ * Respond to an article style change
+ */
+-(void)handleStyleChange:(NSNotification *)notification
+{
+    if (self == self.controller.articleController.mainArticleView) {
+        [articleList performSelector:@selector(reloadData) withObject:nil afterDelay:0.0];
+    }
+}
+
 /* makeRowSelectedAndVisible
  * Selects the specified row in the table and makes it visible by
  * scrolling to it.
@@ -378,7 +393,7 @@ static void *VNAUnifiedDisplayViewObserverContext = &VNAUnifiedDisplayViewObserv
 	Article * theArticle;
 	while (currentRow < totalRows) {
 		theArticle = allArticles[currentRow];
-		if (!theArticle.read) {
+		if (!theArticle.isRead) {
 			[self makeRowSelectedAndVisible:currentRow];
 			return YES;
 		}
@@ -468,7 +483,7 @@ static void *VNAUnifiedDisplayViewObserverContext = &VNAUnifiedDisplayViewObserv
 -(void)markCurrentRead:(NSTimer *)aTimer
 {
 	Article * theArticle = self.selectedArticle;
-	if (theArticle != nil && !theArticle.read && ![Database sharedManager].readOnly) {
+	if (theArticle != nil && !theArticle.isRead && ![Database sharedManager].readOnly) {
 		[self.controller.articleController markReadByArray:@[theArticle] readFlag:YES];
 	}
 }
@@ -776,7 +791,7 @@ static void *VNAUnifiedDisplayViewObserverContext = &VNAUnifiedDisplayViewObserv
         BOOL isStatusBarShown = [Preferences standardPreferences].showStatusBar;
         if (isStatusBarShown && !self.statusBar) {
             self.statusBar = [OverlayStatusBar new];
-            [articleList.enclosingScrollView addSubview:self.statusBar];
+            [self addSubview:self.statusBar];
         } else if (!isStatusBarShown && self.statusBar) {
             [self.statusBar removeFromSuperview];
             self.statusBar = nil;

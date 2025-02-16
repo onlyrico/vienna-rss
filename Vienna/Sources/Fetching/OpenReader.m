@@ -568,9 +568,9 @@ typedef NS_ENUM (NSInteger, OpenReaderStatus) {
             NSMutableArray *articleArray = [NSMutableArray array];
 
             for (NSDictionary *newsItem in (NSArray *)subscriptionsDict[@"items"]) {
-                NSDate *articleDate = [NSDate dateWithTimeIntervalSince1970:[newsItem[@"published"] doubleValue]];
+
                 NSString *articleGuid = newsItem[@"id"];
-                Article *article = [[Article alloc] initWithGuid:articleGuid];
+                Article *article = [[Article alloc] initWithGUID:articleGuid];
                 article.folderId = refreshedFolder.itemId;
 
                 if (newsItem[@"author"] != nil) {
@@ -589,13 +589,13 @@ typedef NS_ENUM (NSInteger, OpenReaderStatus) {
 
                 for (NSString *category in (NSArray *)newsItem[@"categories"]) {
                     if ([category hasSuffix:@"/read"]) {
-                        [article markRead:YES];
+                        article.read = YES;
                     }
                     if ([category hasSuffix:@"/starred"]) {
-                        [article markFlagged:YES];
+                        article.flagged = YES;
                     }
                     if ([category hasSuffix:@"/kept-unread"]) {
-                        [article markRead:NO];
+                        article.read = NO;
                     }
                 }
 
@@ -611,7 +611,15 @@ typedef NS_ENUM (NSInteger, OpenReaderStatus) {
                     article.link = refreshedFolder.feedURL;
                 }
 
-                article.date = articleDate;
+                NSString *publishedField = newsItem[@"published"];
+                if (publishedField) {
+                    article.publicationDate = [NSDate dateWithTimeIntervalSince1970:[publishedField doubleValue]];
+                }
+
+                NSString * updatedField = newsItem[@"updated"];
+                if (updatedField) {
+                    article.lastUpdate = [NSDate dateWithTimeIntervalSince1970:[updatedField doubleValue]];
+                }
 
                 if ([newsItem[@"enclosure"] count] != 0) {
                     article.enclosure = newsItem[@"enclosure"][0][@"href"];
@@ -631,6 +639,7 @@ typedef NS_ENUM (NSInteger, OpenReaderStatus) {
 
             // Here's where we add the articles to the database
             if (articleArray.count > 0) {
+                [refreshedFolder resetArticleStatuses];
                 NSArray *guidHistory = [dbManager guidHistoryForFolderId:refreshedFolder.itemId];
 
                 for (Article *article in articleArray) {
@@ -728,13 +737,13 @@ typedef NS_ENUM (NSInteger, OpenReaderStatus) {
 
                     [guidArray addObject:guid];
                     // now, mark relevant articles unread
-                    [[refreshedFolder articleFromGuid:guid] markRead:NO];
+                    [refreshedFolder articleFromGuid:guid].read = NO;
                 }
 
                 [[Database sharedManager] markUnreadArticlesFromFolder:refreshedFolder guidArray:guidArray];
                 // reset starred statuses in cache : we will receive in -StarredRequestDone: the updated list
                 for (Article *article in refreshedFolder.articles) {
-                    [article markFlagged:NO];
+                    article.flagged = NO;
                 }
             } @catch (NSException *exception) {
                 [aItem appendDetail:[NSString stringWithFormat:@"%@ %@", NSLocalizedString(@"Error", nil), exception]];
@@ -792,7 +801,7 @@ typedef NS_ENUM (NSInteger, OpenReaderStatus) {
                         guid = [NSString stringWithFormat:@"tag:google.com,2005:reader/item/%016qx", (long long)shortId];
                     }
                     [guidArray addObject:guid];
-                    [[refreshedFolder articleFromGuid:guid] markFlagged:YES];
+                    [refreshedFolder articleFromGuid:guid].flagged = YES;
                 }
 
                 [[Database sharedManager] markStarredArticlesFromFolder:refreshedFolder guidArray:guidArray];
@@ -1143,7 +1152,7 @@ typedef NS_ENUM (NSInteger, OpenReaderStatus) {
         Article *article = ((NSDictionary *)[request vna_userInfo])[@"article"];
         BOOL readFlag = [[((NSDictionary *)[request vna_userInfo]) valueForKey:@"readFlag"] boolValue];
         [[Database sharedManager] markArticleRead:article.folderId guid:article.guid isRead:readFlag];
-        [article markRead:readFlag];
+        article.read = readFlag;
         NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
         [nc vna_postNotificationOnMainThreadWithName:MA_Notify_ArticleListStateChange object:@(article.folderId)];
     }
