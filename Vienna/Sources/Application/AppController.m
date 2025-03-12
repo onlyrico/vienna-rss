@@ -58,6 +58,7 @@
 #import "FolderView.h"
 #import "SubscriptionModel.h"
 #import "Vienna-Swift.h"
+#import "GeneratedAssetSymbols.h"
 
 #define VNA_LOG os_log_create("--", "AppController")
 
@@ -401,7 +402,11 @@ static void *VNAAppControllerObserverContext = &VNAAppControllerObserverContext;
         alert.messageText = NSLocalizedString(@"One or more downloads are in progress", @"Message text of an alert");
         alert.informativeText = NSLocalizedString(@"If you quit Vienna now, all downloads will stop.", @"Message text of an alert");
         [alert addButtonWithTitle:NSLocalizedString(@"Quit", @"Title of a button on an alert")];
-        [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Title of a button on an alert")];
+        [alert addButtonWithTitle:NSLocalizedStringWithDefaultValue(@"cancel.button",
+                                                                    nil,
+                                                                    NSBundle.mainBundle,
+                                                                    @"Cancel",
+                                                                    @"Title of a button on an alert")];
         NSModalResponse alertResponse = [alert runModal];
 
         if (alertResponse == NSAlertSecondButtonReturn) {
@@ -514,6 +519,14 @@ static void *VNAAppControllerObserverContext = &VNAAppControllerObserverContext;
 	[db close];
 }
 
+/* applicationSupportsSecureRestorableState [delegate]
+ */
+-(BOOL)applicationSupportsSecureRestorableState:(NSApplication *)app
+{
+    // We do not use override NSApplication delegate `initWithCoder` method, nor the methods
+    // for restoring application state, so we are fine with SecureCoding.
+    return YES;
+}
 
 /* openFile [delegate]
  * Called when the user opens a data file associated with Vienna by clicking in the finder or dragging it onto the dock.
@@ -556,7 +569,11 @@ static void *VNAAppControllerObserverContext = &VNAAppControllerObserverContext;
         alert.messageText = NSLocalizedString(@"Import subscriptions from OPML file?", nil);
         alert.informativeText = NSLocalizedString(@"Do you really want to import the subscriptions from the specified OPML file?", nil);
         [alert addButtonWithTitle:NSLocalizedString(@"Import", @"Title of a button on an alert")];
-        [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Title of a button on an alert")];
+        [alert addButtonWithTitle:NSLocalizedStringWithDefaultValue(@"cancel.button",
+                                                                    nil,
+                                                                    NSBundle.mainBundle,
+                                                                    @"Cancel",
+                                                                    @"Title of a button on an alert")];
         NSModalResponse alertResponse = [alert runModal];
 
         if (alertResponse == NSAlertFirstButtonReturn) {
@@ -1142,15 +1159,15 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 	for (Field * field in [db arrayOfFields]) {
 		// Filter out columns we don't sort on. Later we should have an attribute in the
 		// field object itself based on which columns we can sort on.
-		if (field.tag != ArticleFieldIDParent &&
-			field.tag != ArticleFieldIDGUID &&
-			field.tag != ArticleFieldIDDeleted &&
-			field.tag != ArticleFieldIDHeadlines &&
-			field.tag != ArticleFieldIDSummary &&
-			field.tag != ArticleFieldIDLink &&
-			field.tag != ArticleFieldIDText &&
-			field.tag != ArticleFieldIDEnclosureDownloaded &&
-			field.tag != ArticleFieldIDEnclosure)
+		if (field.tag != VNAArticleFieldTagParent &&
+			field.tag != VNAArticleFieldTagGUID &&
+			field.tag != VNAArticleFieldTagDeleted &&
+			field.tag != VNAArticleFieldTagHeadlines &&
+			field.tag != VNAArticleFieldTagSummary &&
+			field.tag != VNAArticleFieldTagLink &&
+			field.tag != VNAArticleFieldTagText &&
+			field.tag != VNAArticleFieldTagEnclosureDownloaded &&
+			field.tag != VNAArticleFieldTagEnclosure)
 		{
 			NSMenuItem * menuItem = [[NSMenuItem alloc] initWithTitle:field.displayName action:@selector(doSortColumn:) keyEquivalent:@""];
 			menuItem.representedObject = field;
@@ -1183,12 +1200,12 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 	for (Field * field in [db arrayOfFields]) {
 		// Filter out columns we don't view in the article list. Later we should have an attribute in the
 		// field object based on which columns are visible in the tableview.
-		if (field.tag != ArticleFieldIDText && 
-			field.tag != ArticleFieldIDGUID &&
-			field.tag != ArticleFieldIDDeleted &&
-			field.tag != ArticleFieldIDParent &&
-			field.tag != ArticleFieldIDHeadlines &&
-			field.tag != ArticleFieldIDEnclosureDownloaded)
+		if (field.tag != VNAArticleFieldTagText && 
+			field.tag != VNAArticleFieldTagGUID &&
+			field.tag != VNAArticleFieldTagDeleted &&
+			field.tag != VNAArticleFieldTagParent &&
+			field.tag != VNAArticleFieldTagHeadlines &&
+			field.tag != VNAArticleFieldTagEnclosureDownloaded)
 		{
 			NSMenuItem * menuItem = [[NSMenuItem alloc] initWithTitle:field.displayName action:@selector(doViewColumn:) keyEquivalent:@""];
 			menuItem.representedObject = field;
@@ -1302,7 +1319,13 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 		}
 
         scriptsMenuItem = [[NSMenuItem alloc] initWithTitle:@"" action:NULL keyEquivalent:@""];
-        scriptsMenuItem.image = [NSImage imageNamed:@"NSScriptTemplate"];
+        if (@available(macOS 11, *)) {
+            scriptsMenuItem.image = [NSImage imageWithSystemSymbolName:@"applescript.fill"
+                                              accessibilityDescription:nil];
+        } else {
+            // This image is available in AppKit, but not as a constant.
+            scriptsMenuItem.image = [NSImage imageNamed:@"NSScriptTemplate"];
+        }
 
 		NSInteger helpMenuIndex = NSApp.mainMenu.numberOfItems - 1;
 		[NSApp.mainMenu insertItem:scriptsMenuItem atIndex:helpMenuIndex];
@@ -1388,7 +1411,11 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
     alert.messageText = NSLocalizedString(@"Are you sure you want to delete the messages in the Trash folder permanently?", nil);
     alert.informativeText = NSLocalizedString(@"You cannot undo this action", nil);
     [alert addButtonWithTitle:NSLocalizedString(@"Empty", @"Title of a button on an alert")];
-    [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Title of a button on an alert")];
+    [alert addButtonWithTitle:NSLocalizedStringWithDefaultValue(@"cancel.button",
+                                                                nil,
+                                                                NSBundle.mainBundle,
+                                                                @"Cancel",
+                                                                @"Title of a button on an alert")];
     [alert beginSheetModalForWindow:self.mainWindow completionHandler:^(NSModalResponse returnCode) {
         if (returnCode == NSAlertFirstButtonReturn) {
             [self clearUndoStack];
@@ -1494,7 +1521,11 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 								 action:@selector(markAllSubscriptionsRead:)
 						  keyEquivalent:@""];
         [statusBarMenu addItem:[NSMenuItem separatorItem]];
-        [statusBarMenu addItemWithTitle:NSLocalizedString(@"Quit Vienna", @"Title of a menu item")
+        [statusBarMenu addItemWithTitle:NSLocalizedStringWithDefaultValue(@"quitVienna.menuItem",
+                                                                          nil,
+                                                                          NSBundle.mainBundle,
+                                                                          @"Quit Vienna",
+                                                                          @"Title of a menu item")
                                  action:@selector(terminate:)
                           keyEquivalent:@""];
 		appStatusItem.menu = statusBarMenu;
@@ -1512,13 +1543,13 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 {
 	if (appStatusItem != nil) {
 		if (lastCountOfUnread == 0) {
-            NSImage *statusBarImage = [NSImage imageNamed:@"statusBarIcon"];
+            NSImage *statusBarImage = [NSImage imageNamed:ACImageNameStatusBarIcon];
             statusBarImage.template = YES;
             appStatusItem.button.image = statusBarImage;
             appStatusItem.button.title = @"";
             appStatusItem.button.imagePosition = NSImageOnly;
 		} else {
-            NSImage *statusBarImage = [NSImage imageNamed:@"statusBarIconUnread"];
+            NSImage *statusBarImage = [NSImage imageNamed:ACImageNameStatusBarIconUnread];
             statusBarImage.template = YES;
             appStatusItem.button.image = statusBarImage;
 			appStatusItem.button.title = [NSString stringWithFormat:@"%ld", (long)lastCountOfUnread];
@@ -1575,13 +1606,13 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
  */
 -(void)handleFolderSelection:(NSNotification *)nc
 {
-	NSInteger newFolderId = ((TreeNode *)nc.object).nodeId;
+    TreeNode *treeNode = nc.object;
 	
 	// We don't filter when we switch folders.
 	self.filterString = @"";
 	
 	// Call through the controller to display the new folder.
-	[self.articleController displayFolder:newFolderId];
+	[self.articleController displayFolder:treeNode.nodeId];
 	[self updateSearchPlaceholderAndSearchMethod];
 	
 	// Make sure article viewer is active
@@ -1593,13 +1624,21 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 
     // If the user selects the unread-articles smart folder, then clear the
     // relevant user notifications.
-    if (newFolderId == [db folderFromName:NSLocalizedString(@"Unread Articles", nil)].itemId) {
-        NSUserNotificationCenter *center = NSUserNotificationCenter.defaultUserNotificationCenter;
-        [center.deliveredNotifications enumerateObjectsUsingBlock:^(NSUserNotification * notification, NSUInteger idx, BOOL *stop) {
-            if ([notification.userInfo[UserNotificationContextKey] isEqualToString:UserNotificationContextFetchCompleted]) {
-                [center removeDeliveredNotification:notification];
-            }
-        }];
+    if (treeNode.folder.type == VNAFolderTypeSmart) {
+        Criteria *unreadCriteria =
+            [[Criteria alloc] initWithField:MA_Field_Read
+                               operatorType:VNACriteriaOperatorEqualTo
+                                      value:@"No"];
+        NSString *predicateFormat = unreadCriteria.predicate.predicateFormat;
+        Folder *smartFolder = [db folderForPredicateFormat:predicateFormat];
+        if ([smartFolder isEqual:treeNode.folder]) {
+            NSUserNotificationCenter *center = NSUserNotificationCenter.defaultUserNotificationCenter;
+            [center.deliveredNotifications enumerateObjectsUsingBlock:^(NSUserNotification *notification, NSUInteger idx, BOOL *stop) {
+                if ([notification.userInfo[UserNotificationContextKey] isEqualToString:UserNotificationContextFetchCompleted]) {
+                    [center removeDeliveredNotification:notification];
+                }
+            }];
+        }
     }
 }
 
@@ -1757,14 +1796,10 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 -(void)handleRefreshStatusChange:(NSNotification *)nc
 {
 	if (self.connecting) {
-		// Save the date/time of this refresh so we do the right thing when
-		// we apply the filter.
-		[[Preferences standardPreferences] setObject:[NSDate date] forKey:MAPref_LastRefreshDate];
-		
 		// Toggle the refresh button
 		NSToolbarItem *item = [self toolbarItemWithIdentifier:@"Refresh"];
 		item.action = @selector(cancelAllRefreshesToolbar:);
-        item.image = [NSImage imageNamed:@"CancelTemplate"];
+        item.image = [NSImage imageNamed:ACImageNameCancelTemplate];
 	} else {
 		// Run the auto-expire now
 		Preferences * prefs = [Preferences standardPreferences];
@@ -1773,7 +1808,7 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 		// Toggle the refresh button
 		NSToolbarItem *item = [self toolbarItemWithIdentifier:@"Refresh"];
 		item.action = @selector(refreshAllSubscriptions:);
-        item.image = [NSImage imageNamed:@"SyncTemplate"];
+        item.image = [NSImage imageNamed:ACImageNameSyncTemplate];
 
 		[self showUnreadCountOnApplicationIconAndWindowTitle];
 		
@@ -2200,8 +2235,16 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
             NSAlert *alert = [NSAlert new];
             alert.messageText = NSLocalizedString(@"Are you sure you want to permanently delete the selected articles?", nil);
             alert.informativeText = NSLocalizedString(@"This operation cannot be undone.", nil);
-            [alert addButtonWithTitle:NSLocalizedString(@"Delete", @"Title of a button on an alert")];
-            [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Title of a button on an alert")];
+            [alert addButtonWithTitle:NSLocalizedStringWithDefaultValue(@"delete.button",
+                                                                        nil,
+                                                                        NSBundle.mainBundle,
+                                                                        @"Delete",
+                                                                        @"Title of a button on an alert")];
+            [alert addButtonWithTitle:NSLocalizedStringWithDefaultValue(@"cancel.button",
+                                                                        nil,
+                                                                        NSBundle.mainBundle,
+                                                                        @"Cancel",
+                                                                        @"Title of a button on an alert")];
             [alert beginSheetModalForWindow:self.mainWindow completionHandler:^(NSModalResponse returnCode) {
                 if (returnCode == NSAlertFirstButtonReturn) {
                     NSArray *articleArray = self.articleController.markedArticleRange;
@@ -2226,19 +2269,6 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 		downloadWindow = [[DownloadWindow alloc] init];
 	}
 	[downloadWindow.window makeKeyAndOrderFront:sender];
-}
-
-/* conditionalShowDownloadsWindow
- * Make the Downloads window visible only if it hasn't been shown.
- */
--(IBAction)conditionalShowDownloadsWindow:(id)sender
-{
-	if (downloadWindow == nil) {
-		downloadWindow = [[DownloadWindow alloc] init];
-	}
-	if (!downloadWindow.window.visible) {
-		[downloadWindow.window makeKeyAndOrderFront:sender];
-	}
 }
 
 /* viewFirstUnread
@@ -2322,7 +2352,7 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 	Article * theArticle = self.selectedArticle;
 	if (theArticle != nil && !db.readOnly) {
 		NSArray * articleArray = self.articleController.markedArticleRange;
-		[self.articleController markReadByArray:articleArray readFlag:!theArticle.read];
+		[self.articleController markReadByArray:articleArray readFlag:!theArticle.isRead];
 	}
 }
 
@@ -2358,7 +2388,7 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 	Article * theArticle = self.selectedArticle;
 	if (theArticle != nil && !db.readOnly) {
 		NSArray * articleArray = self.articleController.markedArticleRange;
-		[self.articleController markFlaggedByArray:articleArray flagged:!theArticle.flagged];
+		[self.articleController markFlaggedByArray:articleArray flagged:!theArticle.isFlagged];
 	}
 }
 
@@ -2416,8 +2446,16 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
         NSAlert *alert = [NSAlert new];
         alert.messageText = alertTitle;
         alert.informativeText = alertBody;
-        [alert addButtonWithTitle:NSLocalizedString(@"Delete", @"Title of a button on an alert")];
-        [alert addButtonWithTitle:NSLocalizedString(@"Cancel", @"Title of a button on an alert")];
+        [alert addButtonWithTitle:NSLocalizedStringWithDefaultValue(@"delete.button",
+                                                                    nil,
+                                                                    NSBundle.mainBundle,
+                                                                    @"Delete",
+                                                                    @"Title of a button on an alert")];
+        [alert addButtonWithTitle:NSLocalizedStringWithDefaultValue(@"cancel.button",
+                                                                    nil,
+                                                                    NSBundle.mainBundle,
+                                                                    @"Cancel",
+                                                                    @"Title of a button on an alert")];
         NSModalResponse alertResponse = [alert runModal];
 
 		if (alertResponse == NSAlertSecondButtonReturn) {
@@ -3227,7 +3265,11 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 	} else if (theAction == @selector(deleteFolder:)) {
 		Folder * folder = [db folderFromID:self.foldersTree.actualSelection];
 		if (folder.type == VNAFolderTypeSearch) {
-			[menuItem setTitle:NSLocalizedString(@"Delete", @"Title of a menu item")];
+			menuItem.title = NSLocalizedStringWithDefaultValue(@"delete.menuItem",
+															   nil,
+															   NSBundle.mainBundle,
+															   @"Delete",
+															   @"Title of a menu item");
 		} else {
 			[menuItem setTitle:NSLocalizedString(@"Delete…", @"Title of a menu item")];
 		}
@@ -3299,7 +3341,7 @@ withReplyEvent:(NSAppleEventDescriptor *)replyEvent
 	} else if (theAction == @selector(markFlagged:)) {
 		Article * thisArticle = self.selectedArticle;
 		if (thisArticle != nil) {
-			if (thisArticle.flagged) {
+			if (thisArticle.isFlagged) {
 				[menuItem setTitle:NSLocalizedString(@"Mark Unflagged", nil)];
 			} else {
 				[menuItem setTitle:NSLocalizedString(@"Mark Flagged", nil)];

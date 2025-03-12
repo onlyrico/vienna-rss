@@ -43,7 +43,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 
 @interface ArticleController ()
 
--(NSArray *)applyFilter:(NSArray *)unfilteredArray;
+-(NSArray<Article *> *)applyFilter:(NSArray<Article *> *)unfilteredArray;
 -(void)setSortColumnIdentifier:(NSString *)str;
 -(void)innerMarkReadByArray:(NSArray *)articleArray readFlag:(BOOL)readFlag;
 -(void)innerMarkFlaggedByArray:(NSArray *)articleArray flagged:(BOOL)flagged;
@@ -93,8 +93,12 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 										  @"key": @"isFlagged",
 										  @"selector": NSStringFromSelector(@selector(compare:))
 										  },
-								  MA_Field_Date: @{
-										  @"key": [@"articleData." stringByAppendingString:MA_Field_Date],
+								  MA_Field_LastUpdate: @{
+										  @"key": [@"articleData." stringByAppendingString:MA_Field_LastUpdate],
+										  @"selector": NSStringFromSelector(@selector(compare:))
+										  },
+								  MA_Field_PublicationDate: @{
+										  @"key": [@"articleData." stringByAppendingString:MA_Field_PublicationDate],
 										  @"selector": NSStringFromSelector(@selector(compare:))
 										  },
 								  MA_Field_Author: @{
@@ -288,7 +292,10 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 		NSUInteger index = [[descriptors valueForKey:@"key"] indexOfObject:[specifier valueForKey:@"key"]];
 
 		if (index == NSNotFound) {
-			sortDescriptor = [[NSSortDescriptor alloc] initWithKey:[specifier valueForKey:@"key"] ascending:YES selector:NSSelectorFromString([specifier valueForKey:@"selector"])];
+			// Dates should be sorted initially in descending order
+			// MIGHT DO : Add a key to articleSortSpecifiers for a default sort order
+			BOOL ascending = [columnName isEqualToString:MA_Field_PublicationDate] || [columnName isEqualToString:MA_Field_LastUpdate] ? NO : YES;
+			sortDescriptor = [[NSSortDescriptor alloc] initWithKey:[specifier valueForKey:@"key"] ascending:ascending selector:NSSelectorFromString([specifier valueForKey:@"selector"])];
 		} else {
 			sortDescriptor = descriptors[index];
 			[descriptors removeObjectAtIndex:index];
@@ -357,7 +364,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 {
 	// mark current article read
 	Article * currentArticle = self.selectedArticle;
-	if (currentArticle != nil && !currentArticle.read) {
+	if (currentArticle != nil && !currentArticle.isRead) {
 		[self markReadByArray:@[currentArticle] readFlag:YES];
 	}
 
@@ -385,7 +392,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 {
 	// mark current article read
 	Article * currentArticle = self.selectedArticle;
-	if (currentArticle != nil && !currentArticle.read) {
+	if (currentArticle != nil && !currentArticle.isRead) {
 		[self markReadByArray:@[currentArticle] readFlag:YES];
 	}
 
@@ -473,7 +480,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 
     // Make sure selectedArticle hasn't changed since reload started.
     if (articleToPreserve != nil && articleToPreserve != article) {
-        if (article != nil && !article.deleted) {
+        if (article != nil && !article.isDeleted) {
             articleToPreserve = article;
         } else {
             articleToPreserve = nil;
@@ -496,7 +503,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
     Article *currentArticle = self.selectedArticle;
     if (currentArticle == article &&
         [[Preferences standardPreferences] boolForKey:MAPref_CheckForUpdatedArticles]
-        && currentArticle.revised)
+        && currentArticle.isRevised)
     {
         [[NSNotificationCenter defaultCenter] postNotificationName:MA_Notify_ArticleViewChange object:nil];
     }
@@ -514,7 +521,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
  * Apply the active filter to unfilteredArray and return the filtered array.
  * This is done here rather than in the folder management code for simplicity.
  */
--(NSArray *)applyFilter:(NSArray *)unfilteredArray
+-(NSArray<Article *> *)applyFilter:(NSArray<Article *> *)unfilteredArray
 {
 	NSMutableArray * filteredArray = [NSMutableArray arrayWithArray:unfilteredArray];
 	
@@ -523,7 +530,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 	NSInteger filterMode = [Preferences standardPreferences].filterMode;
 	for (NSInteger index = filteredArray.count - 1; index >= 0; --index) {
 		Article * article = filteredArray[index];
-		if (guidOfArticleToPreserve != nil 
+		if (guidOfArticleToPreserve != nil
 			&& article.folderId == articleToPreserve.folderId 
 			&& [article.guid isEqualToString:guidOfArticleToPreserve]) {
 			guidOfArticleToPreserve = nil;
@@ -566,7 +573,11 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 	NSUndoManager * undoManager = NSApp.mainWindow.undoManager;
 	SEL markDeletedUndoAction = deleteFlag ? @selector(markDeletedUndo:) : @selector(markUndeletedUndo:);
 	[undoManager registerUndoWithTarget:self selector:markDeletedUndoAction object:articleArray];
-	[undoManager setActionName:NSLocalizedString(@"Delete", nil)];
+    [undoManager setActionName:NSLocalizedStringWithDefaultValue(@"delete.undoAction",
+                                                                 nil,
+                                                                 NSBundle.mainBundle,
+                                                                 @"Delete",
+                                                                 @"Name of an undo/redo action in the menu bar's Edit menu.")];
 	
 	// We will make a new copy of currentArrayOfArticles and folderArrayOfArticles with the selected articles removed.
 	NSMutableArray * currentArrayCopy = [NSMutableArray arrayWithArray:currentArrayOfArticles];
@@ -746,7 +757,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 		[[Database sharedManager] markArticleFlagged:theArticle.folderId
                                                 guid:theArticle.guid
                                            isFlagged:flagged];
-        [theArticle markFlagged:flagged];
+        theArticle.flagged = flagged;
 	}
 }
 
@@ -775,7 +786,11 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 	NSUndoManager * undoManager = NSApp.mainWindow.undoManager;	
 	SEL markReadUndoAction = readFlag ? @selector(markUnreadUndo:) : @selector(markReadUndo:);
 	[undoManager registerUndoWithTarget:self selector:markReadUndoAction object:articleArray];
-	[undoManager setActionName:NSLocalizedString(@"Mark Read", nil)];
+	[undoManager setActionName:NSLocalizedStringWithDefaultValue(@"markRead.undoAction",
+																 nil,
+																 NSBundle.mainBundle,
+																 @"Mark Read",
+																 @"Name of an undo/redo action in the menu bar's Edit menu.")];
 
     [self innerMarkReadByArray:articleArray readFlag:readFlag];
 
@@ -789,12 +804,12 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 {
 	for (Article * theArticle in articleArray) {
 		NSInteger folderId = theArticle.folderId;
-		if (theArticle.read != readFlag) {
+		if (theArticle.isRead != readFlag) {
 			if ([[Database sharedManager] folderFromID:folderId].type == VNAFolderTypeOpenReader) {
 				[[OpenReader sharedManager] markRead:theArticle readFlag:readFlag];
 			} else {
 				[[Database sharedManager] markArticleRead:folderId guid:theArticle.guid isRead:readFlag];
-				[theArticle markRead:readFlag];
+				theArticle.read = readFlag;
 			}
 		}
 	}
@@ -857,7 +872,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 		 ![folderArray containsObject:currentFolder]))
 	{
 		for (Article *theArticle in folderArrayOfArticles) {
-			[theArticle markRead:YES];
+			theArticle.read = YES;
 		}
 	}
 	
@@ -868,7 +883,7 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
  * Given an array of folders, mark all the articles in those folders as read and
  * return a reference array listing all the articles that were actually marked.
  */
--(NSArray *)wrappedMarkAllFoldersReadInArray:(NSArray *)folderArray
+-(NSArray<ArticleReference *> *)wrappedMarkAllFoldersReadInArray:(NSArray *)folderArray
 {
 	NSMutableArray * refArray = [NSMutableArray array];
 	
@@ -880,15 +895,16 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 			[refArray addObjectsFromArray:[folder arrayOfUnreadArticlesRefs]];
 			[[Database sharedManager] markFolderRead:folderId];
 		} else if (folder.type == VNAFolderTypeOpenReader) {
-			NSArray * articleArray = [folder arrayOfUnreadArticlesRefs];
-			[refArray addObjectsFromArray:articleArray];
+			[refArray addObjectsFromArray:[folder arrayOfUnreadArticlesRefs]];
 			[[OpenReader sharedManager] markAllReadInFolder:folder];
 		} else {
 		    // For smart folders, we only mark read articles which should be visible with current filters
             NSString *filterString = APPCONTROLLER.filterString;
             NSArray * articleArray = [self applyFilter:[folder articlesWithFilter:filterString]];
-            [refArray addObjectsFromArray:articleArray];
             [self innerMarkReadByArray:articleArray readFlag:YES];
+            for (id article in articleArray) {
+                [refArray addObject:[ArticleReference makeReference:(Article *)article]];
+            }
 		}
 	}
 	return [refArray copy];
@@ -1012,26 +1028,23 @@ static void *VNAArticleControllerObserverContext = &VNAArticleControllerObserver
 - (BOOL)filterArticle:(Article *)article usingMode:(NSInteger)filterMode {
     switch (filterMode) {
         case VNAFilterUnread:
-            return !article.read;
+            return !article.isRead;
         case VNAFilterLastRefresh: {
-            NSDate *date = article.createdDate;
-            Preferences *prefs = [Preferences standardPreferences];
-            NSComparisonResult result = [date compare:[prefs objectForKey:MAPref_LastRefreshDate]];
-            return result != NSOrderedAscending;
+            return article.status == ArticleStatusNew || article.status == ArticleStatusUpdated;
         }
         case VNAFilterToday:
-            return [NSCalendar.currentCalendar isDateInToday:article.date];
+            return [NSCalendar.currentCalendar isDateInToday:article.lastUpdate];
         case VNAFilterTime48h: {
             NSDate *twoDaysAgo = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay
                                                                         value:-2
                                                                        toDate:[NSDate date]
                                                                       options:0];
-            return [article.date compare:twoDaysAgo] != NSOrderedAscending;
+            return [article.lastUpdate compare:twoDaysAgo] != NSOrderedAscending;
         }
         case VNAFilterFlagged:
-            return article.flagged;
+            return article.isFlagged;
         case VNAFilterUnreadOrFlagged:
-            return (!article.read || article.flagged);
+            return (!article.isRead || article.isFlagged);
         default:
             return true;
     }

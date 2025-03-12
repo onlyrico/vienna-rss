@@ -21,6 +21,7 @@
 
 #import "Database.h"
 #import "Folder.h"
+#import "Vienna-Swift.h"
 
 @implementation AppController (Notifications)
 
@@ -52,12 +53,21 @@ NSString *const UserNotificationContextFileDownloadFailed = @"User Notification 
  any unread articles after the fetch.
  */
 - (void)openWindowAndShowUnreadArticles {
-    [NSApp activateIgnoringOtherApps:YES];
+    if (@available(macOS 14, *)) {
+        [NSApp activate];
+    } else {
+        [NSApp activateIgnoringOtherApps:YES];
+    }
     [self showMainWindow:self];
 
-    Folder *unreadArticles = [db folderFromName:NSLocalizedString(@"Unread Articles", nil)];
-    if (unreadArticles) {
-        [self selectFolder:unreadArticles.itemId];
+    Criteria *unreadCriteria =
+        [[Criteria alloc] initWithField:MA_Field_Read
+                           operatorType:VNACriteriaOperatorEqualTo
+                                  value:@"No"];
+    NSString *predicateFormat = unreadCriteria.predicate.predicateFormat;
+    Folder *smartFolder = [db folderForPredicateFormat:predicateFormat];
+    if (smartFolder) {
+        [self selectFolder:smartFolder.itemId];
     }
 }
 

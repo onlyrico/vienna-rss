@@ -34,6 +34,8 @@
 #import "EnclosureView.h"
 #import "Database.h"
 #import "Vienna-Swift.h"
+#import "GeneratedAssetSymbols.h"
+#import "AppController.h"
 
 // Shared defaults key
 NSString * const MAPref_ShowEnclosureBar = @"ShowEnclosureBar";
@@ -60,7 +62,6 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 
 @property NSView *articleTextView;
 @property (strong) NSLayoutConstraint *textViewWidthConstraint;
-@property (nonatomic) BOOL imbricatedSplitViewResizes; // used to avoid warnings about missing invalidation for a view's changing state
 @property (nonatomic) NSLayoutManager *layoutManager;
 
 // MARK: ArticleView delegate
@@ -92,7 +93,6 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
     NSMutableDictionary *unreadTopLineDict;
     NSMutableDictionary *unreadTopLineSelectionDict;
 
-    NSURL *currentURL;
     BOOL isLoadingHTMLArticle;
 }
 
@@ -109,8 +109,6 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 		markReadTimer = nil;
 		_currentPageFullHTML = NO;
 		isLoadingHTMLArticle = NO;
-		currentURL = nil;
-		self.imbricatedSplitViewResizes = NO;
         _layoutManager = [NSLayoutManager new];
     }
     return self;
@@ -126,6 +124,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 	[nc addObserver:self selector:@selector(handleArticleListFontChange:) name:MA_Notify_ArticleListFontChange object:nil];
 	[nc addObserver:self selector:@selector(handleReadingPaneChange:) name:MA_Notify_ReadingPaneChange object:nil];
 	[nc addObserver:self selector:@selector(handleLoadFullHTMLChange:) name:MA_Notify_LoadFullHTMLChange object:nil];
+	[nc addObserver:self selector:@selector(handleStyleChange:) name:MA_Notify_StyleChange object:nil];
 	[nc addObserver:self selector:@selector(handleRefreshArticle:) name:MA_Notify_ArticleViewChange object:nil];
 	[nc addObserver:self selector:@selector(handleArticleViewEnded:) name:MA_Notify_ArticleViewEnded object:nil];
 
@@ -145,6 +144,20 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 
     [self.contentStackView addView:self.articleTextView inGravity:NSStackViewGravityTop];
 
+    // With "Use Web Page for Articles" set, we need to manage article view's width
+    //  so that it does not grow or shrink randomly on certain sites.
+    // The best solution I found is programmatically setting a constraint with a
+    // "constant" value.
+    // This did not work for me: self.textViewWidthConstraint =
+    //     [NSLayoutConstraint constraintWithItem:articleTextView attribute:NSLayoutAttributeWidth
+    //         relatedBy:NSLayoutRelationEqual toItem:self.contentStackView attribute:NSLayoutAttributeWidth
+    //         multiplier:1.f constant:0.f];
+    self.textViewWidthConstraint = [NSLayoutConstraint constraintWithItem:self.articleTextView
+        attribute:NSLayoutAttributeWidth relatedBy:NSLayoutRelationEqual
+        toItem:nil attribute:NSLayoutAttributeNotAnAttribute
+        multiplier:0.f constant:self.contentStackView.frame.size.width];
+    self.articleTextView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.contentStackView addConstraint:self.textViewWidthConstraint];
 
 	Preferences * prefs = [Preferences standardPreferences];
 
@@ -172,32 +185,11 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 	// Set the reading pane orientation
 	[self setOrientation:prefs.layout];
 	
-    // With vertical layout and "Use Web Page for Articles" set, we need to
-    // manage article view's width so that it does not grow or shrink randomly
-    // on certain sites.
-    // The best solution I found is programmatically setting a constraint with a
-    // "constant" value.
-    // This did not work for me: self.textViewWidthConstraint =
-    //     [NSLayoutConstraint constraintWithItem:articleTextView attribute:NSLayoutAttributeWidth
-    //         relatedBy:NSLayoutRelationEqual toItem:self.contentStackView attribute:NSLayoutAttributeWidth
-    //         multiplier:1.f constant:0.f];
-    self.textViewWidthConstraint =
-        [NSLayoutConstraint constraintWithItem:self.articleTextView attribute:NSLayoutAttributeWidth
-            relatedBy:NSLayoutRelationEqual toItem:nil attribute:NSLayoutAttributeNotAnAttribute
-            multiplier:0.f constant:self.contentStackView.frame.size.width];
-    self.textViewWidthConstraint.priority = NSLayoutPriorityRequired;
-    self.articleTextView.translatesAutoresizingMaskIntoConstraints = NO;
-    // for some reason, this constraint is necessary for new browser with vertical layout, but it is counterproductive with other configurations
-    self.textViewWidthConstraint.active = splitView2.vertical;
-
 	// Initialise the article list view
 	[self initTableView];
 
 	// Make sure we skip the column filter button in the Tab order
     articleList.nextKeyView = self.articleTextView;
-
-    // Allow us to control the behavior of the NSSplitView
-    splitView2.delegate = self;
 
 	// Done initialising
 	isAppInitialising = NO;
@@ -259,7 +251,11 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 
 	NSMenu *articleListMenu = [[NSMenu alloc] init];
 
-	[articleListMenu addItemWithTitle:NSLocalizedString(@"Mark Read", @"Title of a menu item")
+	[articleListMenu addItemWithTitle:NSLocalizedStringWithDefaultValue(@"markRead.menuItem",
+																		nil,
+																		NSBundle.mainBundle,
+																		@"Mark Read",
+																		@"Title of a menu item")
 							   action:@selector(markRead:)
 						keyEquivalent:@""];
 	[articleListMenu addItemWithTitle:NSLocalizedString(@"Mark Unread", @"Title of a menu item")
@@ -325,11 +321,11 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 			Article * theArticle = allArticles[row];
 			NSString * columnName = ((NSTableColumn *)columns[column]).identifier;
 			if ([columnName isEqualToString:MA_Field_Read]) {
-				[self.controller.articleController markReadByArray:@[theArticle] readFlag:!theArticle.read];
+				[self.controller.articleController markReadByArray:@[theArticle] readFlag:!theArticle.isRead];
 				return;
 			}
 			if ([columnName isEqualToString:MA_Field_Flagged]) {
-				[self.controller.articleController markFlaggedByArray:@[theArticle] flagged:!theArticle.flagged];
+				[self.controller.articleController markFlaggedByArray:@[theArticle] flagged:!theArticle.isFlagged];
 				return;
 			}
 			if ([columnName isEqualToString:MA_Field_HasEnclosure]) {
@@ -394,13 +390,13 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 		// Handle which fields can be visible in the condensed (vertical) layout
 		// versus the report (horizontal) layout
 		if (tableLayout == VNALayoutReport) {
-			showField = field.visible && tag != ArticleFieldIDHeadlines;
+			showField = field.visible && tag != VNAArticleFieldTagHeadlines;
 		} else {
 			showField = NO;
-			if (tag == ArticleFieldIDRead || tag == ArticleFieldIDFlagged || tag == ArticleFieldIDHasEnclosure) {
+			if (tag == VNAArticleFieldTagRead || tag == VNAArticleFieldTagFlagged || tag == VNAArticleFieldTagHasEnclosure) {
 				showField = field.visible;
 			}
-			if (tag == ArticleFieldIDHeadlines) {
+			if (tag == VNAArticleFieldTagHeadlines) {
 				showField = YES;
 			}
 		}
@@ -438,7 +434,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 				column.dataCell = cell;
 			}
 
-			BOOL isResizable = (tag != ArticleFieldIDRead && tag != ArticleFieldIDFlagged && tag != ArticleFieldIDHasEnclosure);
+			BOOL isResizable = (tag != VNAArticleFieldTagRead && tag != VNAArticleFieldTagFlagged && tag != VNAArticleFieldTagHasEnclosure);
 			column.resizingMask = (isResizable ? NSTableColumnUserResizingMask : NSTableColumnNoResizing);
 			// the headline column is auto-resizable
 			column.resizingMask = column.resizingMask | ([column.identifier isEqualToString:MA_Field_Headlines] ? NSTableColumnAutoresizingMask : 0);
@@ -482,11 +478,11 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
         [articleList setTableColumnHeaderImage:enclImage
                        forColumnWithIdentifier:MA_Field_HasEnclosure];
     } else {
-        [articleList setTableColumnHeaderImage:[NSImage imageNamed:@"unread_header"]
+        [articleList setTableColumnHeaderImage:[NSImage imageNamed:ACImageNameUnreadHeader]
                        forColumnWithIdentifier:MA_Field_Read];
-        [articleList setTableColumnHeaderImage:[NSImage imageNamed:@"flagged_header"]
+        [articleList setTableColumnHeaderImage:[NSImage imageNamed:ACImageNameFlaggedHeader]
                        forColumnWithIdentifier:MA_Field_Flagged];
-        [articleList setTableColumnHeaderImage:[NSImage imageNamed:@"enclosure_header"]
+        [articleList setTableColumnHeaderImage:[NSImage imageNamed:ACImageNameEnclosureHeader]
                        forColumnWithIdentifier:MA_Field_HasEnclosure];
     }
 
@@ -579,7 +575,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 		if ([db fieldByName:MA_Field_Subject].visible) {
 			++numberOfRowsInCell;
 		}
-		if ([db fieldByName:MA_Field_Folder].visible || [db fieldByName:MA_Field_Date].visible || [db fieldByName:MA_Field_Author].visible) {
+		if ([db fieldByName:MA_Field_Folder].visible || [db fieldByName:MA_Field_LastUpdate].visible || [db fieldByName:MA_Field_Author].visible) {
 			++numberOfRowsInCell;
 		}
 		if ([db fieldByName:MA_Field_Link].visible) {
@@ -601,10 +597,16 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 -(void)showSortDirection
 {
 	NSString * sortColumnIdentifier = self.controller.articleController.sortColumnIdentifier;
-	
+
+    if (!sortColumnIdentifier) {
+        sortColumnIdentifier = [Preferences.standardPreferences stringForKey:MAPref_SortColumn];
+    }
+
 	for (NSTableColumn * column in articleList.tableColumns) {
 		if ([column.identifier isEqualToString:sortColumnIdentifier]) {
-			NSString * imageName = ([[Preferences standardPreferences].articleSortDescriptors[0] ascending]) ? @"NSAscendingSortIndicator" : @"NSDescendingSortIndicator";
+			// These NSImage names are available in AppKit, but not as constants.
+			// https://developer.apple.com/library/archive/releasenotes/AppKit/RN-AppKitOlderNotes/
+			NSImageName imageName = ([Preferences.standardPreferences.articleSortDescriptors[0] ascending]) ? @"NSAscendingSortIndicator" : @"NSDescendingSortIndicator";
 			articleList.highlightedTableColumn = column;
 			[articleList setIndicatorImage:[NSImage imageNamed:imageName] inTableColumn:column];
 		} else {
@@ -803,6 +805,16 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 	}
 }
 
+/* handleStyleChange
+ * Respond to an article style change
+ */
+-(void)handleStyleChange:(NSNotification *)notification
+{
+    if (self == self.controller.articleController.mainArticleView) {
+        [self performSelector:@selector(refreshArticleAtCurrentRow) withObject:nil afterDelay:0.0];
+    }
+}
+
 /* setOrientation
  * Adjusts the article view orientation and updates the article list row
  * height to accommodate the summary view
@@ -813,9 +825,17 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 	tableLayout = newLayout;
 	splitView2.autosaveName = nil;
 	splitView2.vertical = (newLayout == VNALayoutCondensed);
-	splitView2.dividerStyle = (splitView2.vertical ? NSSplitViewDividerStyleThin : NSSplitViewDividerStylePaneSplitter);
-	splitView2.autosaveName = (newLayout == VNALayoutCondensed ? @"Vienna3SplitView2CondensedLayout" : @"Vienna3SplitView2ReportLayout");
-	self.textViewWidthConstraint.active = splitView2.vertical;
+	if (splitView2.vertical) {
+		splitView2.dividerStyle = NSSplitViewDividerStyleThin;
+		splitView2.autosaveName = @"Vienna3SplitView2CondensedLayout";
+		self.textViewWidthConstraint.constant = self.contentStackView.frame.size.width;
+	} else {
+		splitView2.dividerStyle = NSSplitViewDividerStylePaneSplitter;
+		splitView2.autosaveName = @"Vienna3SplitView2ReportLayout";
+		self.textViewWidthConstraint.constant = splitView2.frame.size.width;
+	}
+	self.textViewWidthConstraint.priority = NSLayoutPriorityRequired;
+	self.textViewWidthConstraint.active = YES;
 	[splitView2 display];
 	isChangingOrientation = NO;
 }
@@ -869,7 +889,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 	Article * theArticle;
 	while (currentRow < totalRows) {
 		theArticle = allArticles[currentRow];
-		if (!theArticle.read) {
+		if (!theArticle.isRead) {
 			[self makeRowSelectedAndVisible:currentRow];
 			return YES;
 		}
@@ -886,6 +906,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
     }
 
     if (![self.contentStackView.views containsObject:self.enclosureView]) {
+        self.articleTextView.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentStackView addView:self.enclosureView
                             inGravity:NSStackViewGravityTop];
     }
@@ -894,6 +915,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 // Hide the enclosure view if it is present.
 - (void)hideEnclosureView {
     if ([self.contentStackView.views containsObject:self.enclosureView]) {
+        self.articleTextView.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentStackView removeView:self.enclosureView];
     }
 }
@@ -920,7 +942,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
         [(NSView *)articleText scrollPageDown:nil];
     } else {
         ArticleController * articleController = self.controller.articleController;
-        [articleController markReadByArray:articleController.markedArticleRange readFlag:YES];
+        [articleController markReadByArray:self.markedArticleRange readFlag:YES];
         [articleController displayNextUnread];
     }
 }
@@ -946,7 +968,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 		BOOL shouldSelectArticle = YES;
 		if ([Preferences standardPreferences].markReadInterval > 0.0f) {
 			Article * article = self.controller.articleController.allArticles[0u];
-            if (!article.read) {
+            if (!article.isRead) {
 				shouldSelectArticle = NO;
             }
 		}
@@ -976,6 +998,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
             break;
         case VNARefreshSortAndRedraw:
             [self.controller.articleController sortArticles];
+            [self showSortDirection];
             break;
     }
 
@@ -993,7 +1016,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 	[self refreshArticlePane];
 	
 	Article * theArticle = self.selectedArticle;
-	if (theArticle != nil && !theArticle.read) {
+	if (theArticle != nil && !theArticle.isRead) {
 		CGFloat interval = [Preferences standardPreferences].markReadInterval;
 		if (interval > 0 && !isAppInitialising) {
 			markReadTimer = [NSTimer scheduledTimerWithTimeInterval:(double)interval
@@ -1044,17 +1067,6 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
     }
 }
 
-/* clearCurrentURL
- * Clears the current URL.
- */
--(void)clearCurrentURL
-{
-	// If we already have an URL release it.
-	if (currentURL) {
-		currentURL = nil;
-	}
-}
-
 /* loadArticleLink
  * Loads the specified link into the article text view. NOTE: This is done
  * via this selector method so that this is called via the event queue in
@@ -1070,27 +1082,9 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 	// Load the actual link.
 	articleText.tabUrl = cleanedUpUrlFromString(articleLink);
     [articleText loadTab];
-	
-	// Clear the current URL.
-	[self clearCurrentURL];
-	
-	// Remember the new URL.
-	currentURL = [[NSURL alloc] initWithString:articleLink];
 
 	// We need to redraw the article list so the progress indicator is shown.
     articleList.needsDisplay = YES;
-}
-
-/* url
- * Return the URL of current article.
- */
--(NSURL *)url
-{
-	if (self.isCurrentPageFullHTML) {
-		return currentURL;
-	} else { 
-		return nil;
-	}
 }
 
 /* refreshArticlePane
@@ -1100,13 +1094,13 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 {
 	NSArray * msgArray = self.markedArticleRange;
 	
-	if (msgArray.count == 0) {
-		// Clear the current URL.
-		[self clearCurrentURL];
+	// enforce our constraint
+	self.textViewWidthConstraint.active = YES;
 
+	if (msgArray.count == 0) {
 		// We are not a FULL HTML page.
 		self.currentPageFullHTML = NO;
-		
+
 		// Clear out the page.
 		[articleText setArticles:@[]];
 	} else {
@@ -1122,16 +1116,13 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 			// Remember we have a full HTML page so we can setup the context menus
 			// appropriately.
 			self.currentPageFullHTML = YES;
-			
+
 			// Now set the article to the URL in the RSS feed's article. NOTE: We use
 			// performSelector:withObject:afterDelay: here so that this link load gets
 			// queued up into the event loop, otherwise the WebView class won't draw the
 			// clearing of the HTML before this new link gets loaded.
 			[self performSelector: @selector(loadArticleLink:) withObject:firstArticle.link afterDelay:0.0];
 		} else {
-			// Clear the current URL.
-			[self clearCurrentURL];
-
 			// Remember we do NOT have a full HTML page so we can setup the context menus
 			// appropriately.
 			self.currentPageFullHTML = NO;
@@ -1139,7 +1130,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 			// Remember we're NOT loading from HTML so the status message is set
 			// appropriately.
 			isLoadingHTMLArticle = NO;
-			
+
 			// Set the article to the HTML from the RSS feed.
 			[articleText setArticles:msgArray];
 		}
@@ -1166,7 +1157,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 -(void)markCurrentRead:(NSTimer *)aTimer
 {
 	Article * theArticle = self.selectedArticle;
-	if (theArticle != nil && !theArticle.read && ![Database sharedManager].readOnly) {
+	if (theArticle != nil && !theArticle.isRead && ![Database sharedManager].readOnly) {
 		[self.controller.articleController markReadByArray:@[theArticle] readFlag:YES];
 	}
 }
@@ -1196,10 +1187,10 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 	theArticle = allArticles[rowIndex];
 	NSString * identifier = aTableColumn.identifier;
 	if ([identifier isEqualToString:MA_Field_Read]) {
-        if (!theArticle.read) {
+        if (!theArticle.isRead) {
             if (@available(macOS 11, *)) {
                 NSImage *image = nil;
-                if (theArticle.revised) {
+                if (theArticle.isRevised) {
                     image = [NSImage imageWithSystemSymbolName:@"sparkles"
                                       accessibilityDescription:nil];
                     // Setting the template property to NO enables the tint color.
@@ -1212,17 +1203,17 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
                 }
                 return image;
             } else {
-                if (theArticle.revised) {
-                    return [NSImage imageNamed:@"revised"];
+                if (theArticle.isRevised) {
+                    return [NSImage imageNamed:ACImageNameRevised];
                 } else {
-                    return [NSImage imageNamed:@"unread"];
+                    return [NSImage imageNamed:ACImageNameUnread];
                 }
             }
         }
         return nil;
 	}
 	if ([identifier isEqualToString:MA_Field_Flagged]) {
-        if (theArticle.flagged) {
+        if (theArticle.isFlagged) {
             if (@available(macOS 11, *)) {
                 NSImage *image = [NSImage imageWithSystemSymbolName:@"flag.fill"
                                            accessibilityDescription:nil];
@@ -1230,7 +1221,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
                 image.template = NO;
                 return image;
             } else {
-                return [NSImage imageNamed:@"flagged"];
+                return [NSImage imageNamed:ACImageNameFlagged];
             }
         }
         return nil;
@@ -1242,7 +1233,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
                                            accessibilityDescription:nil];
                 return image;
             } else {
-                return [NSImage imageNamed:@"enclosure"];
+                return [NSImage imageNamed:ACImageNameEnclosure];
             }
         }
         return nil;
@@ -1256,7 +1247,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 		if ([db fieldByName:MA_Field_Subject].visible) {
 			NSDictionary * topLineDictPtr;
 
-			if (theArticle.read) {
+			if (theArticle.isRead) {
 				topLineDictPtr = (isSelectedRow ? selectionDict : topLineDict);
 			} else {
 				topLineDictPtr = (isSelectedRow ? unreadTopLineSelectionDict : unreadTopLineDict);
@@ -1305,8 +1296,8 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 			[summaryString appendFormat:@"%@", folder.name];
 			delimiter = @" - ";
 		}
-		if ([db fieldByName:MA_Field_Date].visible) {
-			[summaryString appendFormat:@"%@%@", delimiter, [NSDateFormatter vna_relativeDateStringFromDate:theArticle.date]];
+		if ([db fieldByName:MA_Field_LastUpdate].visible) {
+			[summaryString appendFormat:@"%@%@", delimiter, [NSDateFormatter vna_relativeDateStringFromDate:theArticle.lastUpdate]];
 			delimiter = @" - ";
 		}
 		if ([db fieldByName:MA_Field_Author].visible) {
@@ -1325,8 +1316,10 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 	}
 	
 	NSString * cellString;
-	if ([identifier isEqualToString:MA_Field_Date]) {
-        cellString = [NSDateFormatter vna_relativeDateStringFromDate:theArticle.date];
+	if ([identifier isEqualToString:MA_Field_LastUpdate]) {
+        cellString = [NSDateFormatter vna_relativeDateStringFromDate:theArticle.lastUpdate];
+	} else if ([identifier isEqualToString:MA_Field_PublicationDate]) {
+		cellString = [NSDateFormatter vna_relativeDateStringFromDate:theArticle.publicationDate];
 	} else if ([identifier isEqualToString:MA_Field_Folder]) {
 		Folder * folder = [db folderFromID:theArticle.folderId];
 		cellString = folder.name;
@@ -1345,7 +1338,7 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
 		[NSException raise:@"ArticleListView unknown table column identifier exception" format:@"Unknown table column identifier: %@", identifier];
 	}
 	
-	theAttributedString = [[NSMutableAttributedString alloc] initWithString:SafeString(cellString) attributes:(theArticle.read ? reportCellDict : unreadReportCellDict)];
+	theAttributedString = [[NSMutableAttributedString alloc] initWithString:SafeString(cellString) attributes:(theArticle.isRead ? reportCellDict : unreadReportCellDict)];
 	[theAttributedString fixFontAttributeInRange:NSMakeRange(0u, theAttributedString.length)];
     return theAttributedString;
 }
@@ -1630,48 +1623,44 @@ static void *VNAArticleListViewObserverContext = &VNAArticleListViewObserverCont
     }
 }
 
-// MARK : splitView2 delegate
+// MARK: splitView2 & main window's splitView delegate
 
 - (void)splitViewWillResizeSubviews:(NSNotification *)notification {
+    if (self != APPCONTROLLER.articleController.mainArticleView) {
+        return;
+    }
     NSDictionary * info = notification.userInfo;
     NSInteger userResizeKey = ((NSNumber *)info[@"NSSplitViewUserResizeKey"]).integerValue;
     if (userResizeKey == 1) { // user initiated resize
         self.textViewWidthConstraint.active = NO;
-        if (self.imbricatedSplitViewResizes) {
-            // remove any other constraint affecting articleTextView's horizontal axis,
-            // and let autoresizing do the job
-            for (NSLayoutConstraint *c in [self.articleTextView constraintsAffectingLayoutForOrientation:NSLayoutConstraintOrientationHorizontal]) {
-                if ((c.firstItem == self.articleTextView || c.secondItem == self.articleTextView) && (c != self.textViewWidthConstraint)) {
-                    [self.articleTextView removeConstraint:c];
-                }
+        // remove any other constraint affecting articleTextView's horizontal axis,
+        // and let autoresizing do the job
+        for (NSLayoutConstraint *c in [self.articleTextView constraintsAffectingLayoutForOrientation:NSLayoutConstraintOrientationHorizontal]) {
+            if ((c.firstItem == self.articleTextView || c.secondItem == self.articleTextView) && (c != self.textViewWidthConstraint)) {
+                [self.articleTextView removeConstraint:c];
             }
-            self.articleTextView.translatesAutoresizingMaskIntoConstraints = YES;
-        } else {
-            self.imbricatedSplitViewResizes = YES;
         }
+        self.articleTextView.translatesAutoresizingMaskIntoConstraints = YES;
     }
 }
 
 - (void)splitViewDidResizeSubviews:(NSNotification *)notification {
-    // update and reactivate constraint
+    if (self != APPCONTROLLER.articleController.mainArticleView) {
+        return;
+    }
+    // update constraint
     self.textViewWidthConstraint.constant = self.contentStackView.frame.size.width;
     NSDictionary * info = notification.userInfo;
     NSInteger userResizeKey = ((NSNumber *)info[@"NSSplitViewUserResizeKey"]).integerValue;
     if (userResizeKey == 1) {
-        if (self.imbricatedSplitViewResizes) {
-            // remove again any other constraint affecting articleTextView's horizontal axis,
-            // and let autoresizing do the job
-            for (NSLayoutConstraint *c in [self.articleTextView constraintsAffectingLayoutForOrientation:NSLayoutConstraintOrientationHorizontal]) {
-                if ((c.firstItem == self.articleTextView || c.secondItem == self.articleTextView) && (c != self.textViewWidthConstraint)) {
-                    [self.articleTextView removeConstraint:c];
-                }
+        // remove again any other constraint affecting articleTextView's horizontal axis,
+        // and let autoresizing do the job
+        for (NSLayoutConstraint *c in [self.articleTextView constraintsAffectingLayoutForOrientation:NSLayoutConstraintOrientationHorizontal]) {
+            if ((c.firstItem == self.articleTextView || c.secondItem == self.articleTextView) && (c != self.textViewWidthConstraint)) {
+                [self.articleTextView removeConstraint:c];
             }
-            self.articleTextView.translatesAutoresizingMaskIntoConstraints = YES;
-        } else {
-            self.articleTextView.translatesAutoresizingMaskIntoConstraints = NO;
-            self.textViewWidthConstraint.active = YES;
         }
-        self.imbricatedSplitViewResizes = NO;
+        self.articleTextView.translatesAutoresizingMaskIntoConstraints = YES;
     }
 }
 

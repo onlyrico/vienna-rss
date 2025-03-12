@@ -24,6 +24,7 @@
 @class Folder;
 @class Field;
 @class Article;
+@class ArticleReference;
 @class CriteriaTree;
 
 typedef NS_OPTIONS(NSInteger, VNAQueryScope) {
@@ -45,7 +46,6 @@ extern NSNotificationName const VNADatabaseDidDeleteFolderNotification;
 
 // General database functions
 - (instancetype)initWithDatabaseAtPath:(NSString *)dbPath /*NS_DESIGNATED_INITIALIZER*/;
--(void)syncLastUpdate;
 -(void)compactDatabase;
 -(void)reindexDatabase;
 @property (nonatomic, readonly) NSInteger countOfUnread;
@@ -65,9 +65,33 @@ extern NSNotificationName const VNADatabaseDidDeleteFolderNotification;
 -(NSArray *)arrayOfAllFolders;
 -(NSArray *)arrayOfFolders:(NSInteger)parentId;
 -(Folder *)folderFromID:(NSInteger)wantedId;
+/*!
+ *  folderFromFeedURL
+ *
+ *  @param wantedFeedURL The feed URL the folder is wanted for
+ *
+ *  @return An RSSFolder that is subscribed to the specified feed URL.
+ */
 -(Folder *)folderFromFeedURL:(NSString *)wantedFeedURL;
+/*!
+ *  folderFromRemoteId
+ *
+ *  @param wantedRemoteId The remote identifier the folder is wanted for
+ *
+ *  @return An OpenReaderFolder that corresponds
+ */
 -(Folder *)folderFromRemoteId:(NSString *)wantedRemoteId;
 -(Folder *)folderFromName:(NSString *)wantedName;
+/*!
+ * folderForPredicateFormat
+ * Returns a smart folder for the predicate format string.
+ * This function is reliable only with simple one-term predicates
+ *
+ * @param predicateFormat An NSPredicate format string
+ *
+ * @return A Folder of type `VNAFolderTypeSmart` or `nil`
+ */
+- (Folder *)folderForPredicateFormat:(NSString *)predicateFormat;
 -(NSString *)sqlScopeForFolder:(Folder *)folder flags:(VNAQueryScope)scopeFlags field:(NSString *)field;
 -(NSInteger)addFolder:(NSInteger)parentId afterChild:(NSInteger)predecessorId folderName:(NSString *)name type:(NSInteger)type canAppendIndex:(BOOL)canAppendIndex;
 -(BOOL)deleteFolder:(NSInteger)folderId;
@@ -100,7 +124,6 @@ extern NSNotificationName const VNADatabaseDidDeleteFolderNotification;
         subscriptionURL:(NSString *)url remoteId:(NSString *)remoteId;
 
 // Smart folder functions
--(void)initSmartfoldersDict;
 -(NSInteger)addSmartFolder:(NSString *)folderName underParent:(NSInteger)parentId withQuery:(CriteriaTree *)criteriaTree;
 -(void)updateSearchFolder:(NSInteger)folderId withFolder:(NSString *)folderName withQuery:(CriteriaTree *)criteriaTree;
 -(CriteriaTree *)searchStringForSmartFolder:(NSInteger)folderId;
@@ -109,8 +132,8 @@ extern NSNotificationName const VNADatabaseDidDeleteFolderNotification;
 -(BOOL)addArticle:(Article *)article toFolder:(NSInteger)folderID;
 -(BOOL)updateArticle:(Article *)existingArticle ofFolder:(NSInteger)folderID withArticle:(Article *)article;
 -(BOOL)deleteArticle:(Article *)article;
--(NSArray *)arrayOfUnreadArticlesRefs:(NSInteger)folderId;
--(NSArray *)arrayOfArticles:(NSInteger)folderId filterString:(NSString *)filterString;
+-(NSArray<ArticleReference *> *)arrayOfUnreadArticlesRefs:(NSInteger)folderId;
+-(NSArray<Article *> *)arrayOfArticles:(NSInteger)folderId filterString:(NSString *)filterString;
 -(void)markArticleRead:(NSInteger)folderId guid:(NSString *)guid isRead:(BOOL)isRead;
 -(void)markArticleFlagged:(NSInteger)folderId guid:(NSString *)guid isFlagged:(BOOL)isFlagged;
 -(void)markArticleDeleted:(Article *)article isDeleted:(BOOL)isDeleted;

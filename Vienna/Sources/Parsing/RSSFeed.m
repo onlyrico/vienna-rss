@@ -59,9 +59,16 @@
     success = [self initRSSFeedHeaderWithElement:channelElement];
     if (success) {
         if (isRDF) {
-            success = [self initRSSFeedItems:rssElement];
+            [self initRSSFeedItems:rssElement];
         } else {
-            success = [self initRSSFeedItems:channelElement];
+            [self initRSSFeedItems:channelElement];
+
+            // Previous versions of RSS allowed <item> elements under the <rss>
+            // element instead of the <channel> element. If no items were found
+            // under the <channel> element then traverse the <rss> element too.
+            if (self.items.count == 0) {
+                [self initRSSFeedItems:rssElement];
+            }
         }
     }
     return success;
@@ -137,7 +144,8 @@
             (isRSSElement && [channelItemTag isEqualToString:@"pubDate"]) ||
             ([element.prefix isEqualToString:self.dcPrefix] && [channelItemTag isEqualToString:@"date"])) {
             NSString *dateString = element.stringValue;
-            self.modifiedDate = [self dateWithXMLString:dateString];
+            //publication date will be set to the current date in a later step, so we don´t set it here
+            self.modificationDate = [self dateWithXMLString:dateString];
             success = YES;
             continue;
         }
@@ -167,9 +175,8 @@
     }
 }
 
-- (BOOL)initRSSFeedItems:(NSXMLElement *)startElement
+- (void)initRSSFeedItems:(NSXMLElement *)startElement
 {
-    BOOL success = YES;
     NSMutableArray *items = [NSMutableArray array];
 
     for (NSXMLElement *element in startElement.children) {
@@ -228,8 +235,10 @@
                 }
 
                 // Parse detailed item description. This overrides the existing
-                // description for this item.
-                if ([itemChildElement.prefix isEqualToString:self.contentPrefix] && [articleItemTag isEqualToString:@"encoded"]) {
+                // description for this item, provided it is not an empty string.
+                if ([itemChildElement.prefix isEqualToString:self.contentPrefix] &&
+                    [articleItemTag isEqualToString:@"encoded"] &&
+                    !itemChildElement.stringValue.vna_isBlank) {
                     articleBody = [NSMutableString stringWithString:itemChildElement.stringValue];
                     hasDetailedContent = YES;
                     continue;
@@ -257,8 +266,19 @@
 
                 // Parse item date
                 if ((isRSSElement && [articleItemTag isEqualToString:@"pubDate"]) || ([itemChildElement.prefix isEqualToString:self.dcPrefix] && [articleItemTag isEqualToString:@"date"])) {
-                    NSString *dateString = itemChildElement.stringValue;
-                    newFeedItem.modifiedDate = [self dateWithXMLString:dateString];
+                    NSDate *newDate = [self dateWithXMLString:itemChildElement.stringValue];
+                    if (newFeedItem.publicationDate == nil || [newDate isLessThan:newFeedItem.publicationDate]) {
+                        newFeedItem.publicationDate = newDate;
+                    }
+                    continue;
+                }
+
+                // Parse item modification date
+                if ([itemChildElement.prefix isEqualToString:self.dcPrefix] && [articleItemTag isEqualToString:@"modified"]) {
+                    NSDate *newDate = [self dateWithXMLString:itemChildElement.stringValue];
+                    if (newFeedItem.modificationDate == nil || [newDate isGreaterThan:newFeedItem.modificationDate]) {
+                        newFeedItem.modificationDate = newDate;
+                    }
                     continue;
                 }
 
@@ -289,13 +309,19 @@
 
                 // Parse media group
                 if ([itemChildElement.prefix isEqualToString:self.mediaPrefix] && [articleItemTag isEqualToString:@"group"]) {
-                    if ([newFeedItem.enclosure isEqualToString:@""]) {
+                    if (!newFeedItem.enclosure || [newFeedItem.enclosure isEqualToString:@""]) {
                         // group's first enclosure
                         NSString *enclosureString = [NSString stringWithFormat:@"%@:content", self.mediaPrefix];
                         newFeedItem.enclosure =
                             ([[itemChildElement elementsForName:enclosureString].firstObject attributeForName:@"url"]).stringValue;
                     }
-                    if (!articleBody) {
+                    if (!newFeedItem.enclosure || [newFeedItem.enclosure isEqualToString:@""]) {
+                        // use first thumbnail as a workaround for enclosure
+                        NSString *enclosureString = [NSString stringWithFormat:@"%@:thumbnail", self.mediaPrefix];
+                        newFeedItem.enclosure =
+                            ([[itemChildElement elementsForName:enclosureString].firstObject attributeForName:@"url"]).stringValue;
+                    }
+                    if (!articleBody || [articleBody isEqualToString:@""]) {
                         // use enclosure description as a workaround for feed description
                         NSString *descriptionString = [NSString stringWithFormat:@"%@:description", self.mediaPrefix];
                         articleBody =
@@ -328,7 +354,7 @@
 
     self.items = items;
 
-    return success;
+    return;
 }
 
 // MARK: Overrides
